@@ -3,8 +3,9 @@ import type { Database } from "@/integrations/supabase/types";
 
 // Public, unauthenticated database client. The whole library is public by design.
 export function getPublicDb() {
-  const key = process.env["SUPABASE_PUBLISHABLE_KEY"]!;
-  const url = process.env["SUPABASE_URL"]!;
+  const key = process.env["SUPABASE_PUBLISHABLE_KEY"];
+  const url = process.env["SUPABASE_URL"];
+  if (!key || !url) throw new Error("Database configuration is missing");
   return createClient<Database>(url, key, {
     auth: { persistSession: false },
     global: {

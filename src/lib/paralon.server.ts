@@ -3,15 +3,13 @@
 // Rules of this provider:
 //  1. Only the free 27B Qwen model may be used (no credits on these accounts).
 //  2. Each key allows sixty requests per minute, so all four keys are rotated.
-//  3. The model runs a hidden thinking pass. We ask it to skip thinking once,
-//     and any reasoning that still arrives is dropped, never shown.
+//  3. Thinking is disabled in the request body, and any reasoning that still
+//     arrives is dropped rather than shown or stored.
 
 const BASE_URL = "https://paraloncloud.com/v1/chat/completions";
 export const MODEL = "qwen3.8-27b";
 
 const RATE_LIMIT_PER_KEY_PER_MIN = 55;
-const STALL_MS = 45_000;
-const HARD_TIMEOUT_MS = 150_000;
 
 export function getKeys(): string[] {
   const raw = [
@@ -51,20 +49,14 @@ async function waitForSlot(key: string) {
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-// Single place where the request body is built, so the thinking switch and the
-// /no_think hint exist exactly once.
+// Keep the provider-specific thinking switch in exactly one place.
 function buildBody(
   messages: ChatMessage[],
   opts: { maxTokens: number; temperature: number; stream: boolean },
 ) {
-  const prepared = messages.map((m, i) =>
-    i === messages.length - 1 && m.role === "user"
-      ? { ...m, content: `${m.content}\n\n/no_think` }
-      : m,
-  );
   return {
     model: MODEL,
-    messages: prepared,
+    messages,
     max_tokens: opts.maxTokens,
     temperature: opts.temperature,
     stream: opts.stream,
@@ -77,103 +69,79 @@ function stripThinking(text: string): string {
 }
 
 async function completeOnce(key: string, body: ReturnType<typeof buildBody>): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), HARD_TIMEOUT_MS);
-  try {
-    const res = await fetch(BASE_URL, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
-      (err as Error & { status?: number }).status = res.status;
-      throw err;
-    }
-    const payload = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string | null } }>;
-    };
-    return stripThinking(payload.choices?.[0]?.message?.content ?? "");
-  } finally {
-    clearTimeout(timer);
+  const res = await fetch(BASE_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
+  const payload = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string | null } }>;
+  };
+  return stripThinking(payload.choices?.[0]?.message?.content ?? "");
 }
 
-// Streaming keeps long chapters alive: bytes arrive early, and a genuinely
-// frozen generation is caught by the stall timer.
+// Streaming keeps long generations active without imposing an artificial
+// deadline that could discard valid, billable work still running upstream.
 async function streamOnce(key: string, body: ReturnType<typeof buildBody>): Promise<string> {
-  const controller = new AbortController();
-  let lastContent = Date.now();
-  const started = Date.now();
-  const watchdog = setInterval(() => {
-    if (Date.now() - lastContent > STALL_MS || Date.now() - started > HARD_TIMEOUT_MS) {
-      controller.abort();
-    }
-  }, 2000);
+  const res = await fetch(BASE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(body),
+  });
 
-  try {
-    const res = await fetch(BASE_URL, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok || !res.body) {
-      const detail = res.ok ? "no stream body" : (await res.text()).slice(0, 300);
-      const err = new Error(`${res.status} ${detail}`);
-      (err as Error & { status?: number }).status = res.status;
-      throw err;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let out = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        let parsed: {
-          choices?: Array<{
-            delta?: { content?: string | null; reasoning?: string | null };
-            message?: { content?: string | null };
-          }>;
-        };
-        try {
-          parsed = JSON.parse(payload);
-        } catch {
-          continue;
-        }
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-        // Hidden reasoning is dropped but proves the provider is alive.
-        if (choice.delta?.reasoning) lastContent = Date.now();
-        const piece = choice.delta?.content ?? choice.message?.content ?? "";
-        if (piece) {
-          out += piece;
-          lastContent = Date.now();
-        }
-      }
-    }
-
-    return stripThinking(out);
-  } finally {
-    clearInterval(watchdog);
+  if (!res.ok || !res.body) {
+    const detail = res.ok ? "no stream body" : (await res.text()).slice(0, 300);
+    const err = new Error(`${res.status} ${detail}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let out = "";
+
+  const consumeLine = (rawLine: string) => {
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) return;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    try {
+      const parsed = JSON.parse(payload) as {
+        choices?: Array<{
+          delta?: { content?: string | null; reasoning?: string | null };
+          message?: { content?: string | null };
+        }>;
+      };
+      const choice = parsed.choices?.[0];
+      if (!choice) return;
+      out += choice.delta?.content ?? choice.message?.content ?? "";
+    } catch {
+      // Ignore keep-alives and non-JSON provider events.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    lines.forEach(consumeLine);
+  }
+  buffer += decoder.decode();
+  if (buffer) consumeLine(buffer);
+
+  return stripThinking(out);
 }
 
 export async function chat(opts: {
@@ -191,7 +159,8 @@ export async function chat(opts: {
   let best = "";
 
   for (let attempt = 0; attempt < keys.length + 2; attempt++) {
-    const key = keys[(start + attempt) % keys.length]!;
+    const key = keys[(start + attempt) % keys.length];
+    if (!key) continue;
     try {
       await waitForSlot(key);
       const useStream = opts.stream !== false;
@@ -227,7 +196,6 @@ export function sanitizeStoryText(raw: string): string {
   let text = raw;
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
   text = text.replace(/<\/?think>/gi, "");
-  text = text.replace(/```[\s\S]*?```/g, "");
   text = text.replace(/```/g, "");
   text = text.replace(DEVANAGARI_DIGITS, "");
   text = text.replace(/[0-9]/g, "");
