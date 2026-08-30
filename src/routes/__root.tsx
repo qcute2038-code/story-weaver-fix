@@ -10,7 +10,9 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { Toaster } from "@/components/ui/sonner";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+
 
 function NotFoundComponent() {
   return (
@@ -77,23 +79,32 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "मंगा कथा | Hindi Manga Story Writer" },
+      {
+        name: "description",
+        content:
+          "अंग्रेजी सारांश से पूरी हिंदी मंगा कहानी लिखवाइए, लाइब्रेरी में सेव कीजिए और कभी भी डाउनलोड कीजिए।",
+      },
+      { property: "og:title", content: "मंगा कथा | Hindi Manga Story Writer" },
+      {
+        property: "og:description",
+        content: "AI से पचास हजार शब्दों की कैजुअल हिंदी मंगा कहानी, अगला पार्ट कभी भी।",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: "https://fonts.googleapis.com/css2?family=Anton&family=Mukta:wght@300;400;600;800&display=swap",
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
+
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -119,8 +130,47 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <SiteHeader />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );
 }
+
+function SiteHeader() {
+  return (
+    <header className="sticky top-0 z-40 border-b-2 border-foreground bg-card/95 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+        <Link to="/" className="ink-title text-2xl text-foreground">
+          मंगा<span className="text-primary">कथा</span>
+        </Link>
+        <nav className="flex items-center gap-2 text-sm font-semibold">
+          <Link
+            to="/"
+            className="rounded-sm px-3 py-1.5 transition-colors hover:bg-secondary"
+            activeProps={{ className: "bg-primary text-primary-foreground rounded-sm px-3 py-1.5" }}
+            activeOptions={{ exact: true }}
+          >
+            नई कहानी
+          </Link>
+          <Link
+            to="/library"
+            className="rounded-sm px-3 py-1.5 transition-colors hover:bg-secondary"
+            activeProps={{ className: "bg-primary text-primary-foreground rounded-sm px-3 py-1.5" }}
+          >
+            लाइब्रेरी
+          </Link>
+          <Link
+            to="/api-docs"
+            className="rounded-sm px-3 py-1.5 transition-colors hover:bg-secondary"
+            activeProps={{ className: "bg-primary text-primary-foreground rounded-sm px-3 py-1.5" }}
+          >
+            API
+          </Link>
+        </nav>
+      </div>
+    </header>
+  );
+}
+
