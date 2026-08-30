@@ -3,22 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { PARALLEL_WRITERS } from "./story-rules";
 import { finishPart, planPart, writeStoryChunk } from "./stories.functions";
 
-const PLAN_TIMEOUT_MS = 180_000;
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
 export type WriterState = {
   running: boolean;
   phase: string;
@@ -77,11 +61,7 @@ export function useStoryWriter(partId: string | null, onUpdate: () => void) {
 
         if (part.status === "planning") {
           setState((s) => ({ ...s, phase: "सारांश पढ़कर प्लान बनाया जा रहा है" }));
-          await withTimeout(
-            planPart({ data: { partId } }),
-            PLAN_TIMEOUT_MS,
-            "प्लान बनाने में बहुत समय लग रहा है। थोड़ी देर बाद दोबारा कोशिश करें।",
-          );
+          await planPart({ data: { partId } });
           onUpdate();
           continue;
         }

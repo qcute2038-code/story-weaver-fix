@@ -87,10 +87,11 @@ function StoryPage() {
     queryKey: ["part-text", current?.id],
     enabled: !!current,
     queryFn: async () => {
+      if (!current) return "";
       const { data: chunks } = await supabase
         .from("story_chunks")
         .select("content, chunk_index")
-        .eq("part_id", current!.id)
+        .eq("part_id", current.id)
         .order("chunk_index");
       return (chunks ?? [])
         .map((c) => c.content)

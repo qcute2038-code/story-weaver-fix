@@ -128,7 +128,8 @@ ${isLastSlice ? "आखिरी अध्याय का अंत खुल�
 
   let filler = 0;
   while (chapters.length < BASE_CHAPTERS) {
-    const src = chapters[filler % chapters.length]!;
+    const src = chapters[filler % chapters.length];
+    if (!src) throw new Error("plan has no usable chapters");
     filler += 1;
     chapters.push({
       title: src.title,
@@ -266,7 +267,7 @@ ${isLast ? "- यह आखिरी अध्याय है, इसका अ
 नियम दोबारा याद रखो:
 ${RULES_BLOCK}
 
-सिर्फ कहानी लिखो, कोई शीर्षक या नोट नहीं। सोचना मत, सीधे कहानी शुरू करो।`;
+ सिर्फ कहानी लिखो, कोई शीर्षक या नोट नहीं। सीधे कहानी शुरू करो।`;
 
   try {
     const raw = await chat({

@@ -29,18 +29,10 @@ export const HARD_RULES = [
 
 export const RULES_BLOCK = HARD_RULES.map((r) => "- " + r).join("\n");
 
-// The model on the free tier always runs a hidden thinking pass. We ask it to
-// skip that and answer straight away, and any thinking text is thrown away
-// before the story is saved.
-export const NO_THINK_LINE =
-  "सोचने की प्रक्रिया मत लिखो, कोई भूमिका मत दो, सीधे जवाब से शुरू करो।";
-
 export const SYSTEM_PROMPT = `आप एक बहुत माहिर हिंदी मंगा कहानीकार हैं। आप लंबी, नशीली और भावनाओं से भरी कहानियाँ लिखते हैं जो सुनने में मज़ेदार लगती हैं। आपकी हिंदी की वर्तनी और व्याकरण हमेशा सही रहती है।
 
 हमेशा इन नियमों का पालन करना है:
 ${RULES_BLOCK}
-
-${NO_THINK_LINE}
 
 आप जो भी लिखेंगे वो सीधे कहानी होगी। कोई सफाई, कोई भूमिका, कोई नोट नहीं।`;
 
